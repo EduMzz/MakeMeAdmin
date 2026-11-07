@@ -319,7 +319,7 @@ namespace SinclairCC.MakeMeAdmin
             if ((args.Length == 1) && string.Equals(args[0], "list", StringComparison.OrdinalIgnoreCase))
             {
                 PropertyInfo[] properties = typeof(Settings).GetProperties(BindingFlags.Public | BindingFlags.Static)
-                    .Where(p => p.CanRead && p.CanWrite && p.Name != "SIDs" && p.Name != "RequireAuthenticationForPrivileges" && p.Name != "AutomaticAddAllowed" && p.Name != "AutomaticAddDenied")
+                    .Where(p => p.CanRead && p.CanWrite && p.Name != "SIDs" && p.Name != "RequireAuthenticationForPrivileges" && p.Name != "AutomaticAddAllowed" && p.Name != "AutomaticAddDenied" && p.Name != "RenewalsAllowed")
                     .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToArray();
 
                 foreach (PropertyInfo property in properties)
@@ -332,6 +332,7 @@ namespace SinclairCC.MakeMeAdmin
                 Console.WriteLine("LocalUserRequestAuthorization=UAC-required [Enforced]");
                 Console.WriteLine("UserGrantUacSecurity=" + (Settings.UserGrantUacSecurityRequirementsSatisfied ? "enabled" : "disabled") + " [Windows policy; local UAC grant helpers fail closed when disabled]");
                 Console.WriteLine("AutomaticAdd=Disabled [Security invariant; legacy automatic-add rules are ignored]");
+                Console.WriteLine("RenewalsAllowed=0 [Enforced; a new grant requires administrator authorization]");
                 Console.WriteLine("Policy values are read-only here and take precedence over local values.");
                 return 0;
             }
@@ -346,6 +347,10 @@ namespace SinclairCC.MakeMeAdmin
                 if (string.Equals(settingName, "AutomaticAddAllowed", StringComparison.OrdinalIgnoreCase) || string.Equals(settingName, "AutomaticAddDenied", StringComparison.OrdinalIgnoreCase))
                 {
                     throw new InvalidOperationException("Automatic grants on logon are disabled. Use LocalAllowedEntities and LocalDeniedEntities to define which accounts may submit a UAC-authenticated request.");
+                }
+                if (string.Equals(settingName, "RenewalsAllowed", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("A user-only prompt cannot renew administrator access. The grant expires; a new request must receive administrator authorization.");
                 }
 
                 PropertyInfo property = typeof(Settings).GetProperty(settingName, BindingFlags.Public | BindingFlags.Static | BindingFlags.IgnoreCase);

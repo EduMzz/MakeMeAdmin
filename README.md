@@ -40,6 +40,7 @@ The CLI shows each setting's source: `Default`, `Local`, or `Policy`. A Policy-s
 
 - Windows UAC authentication is mandatory for grants initiated by a standard user; the legacy `RequireAuthenticationForPrivileges` setting cannot disable it.
 - Local UAC grants fail closed unless Windows enables UAC, credential prompting for standard users, and the secure desktop. The administrator can inspect this state with `admin config list`; change a policy-controlled value at its Windows policy source.
+- User-only renewal prompts are disabled. Expiration removes the grant, and a new request must receive administrator authorization again.
 - The service validates authorization on the privileged side, not in the user interface.
 - Service IPC is authenticated with Windows transport security. Privileged operations require a Windows administrator token.
 - A standard-user UAC grant is bound to the helper's authenticated session, preventing the requester from selecting another session by changing client arguments.

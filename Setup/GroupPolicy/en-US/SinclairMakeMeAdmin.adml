@@ -23,8 +23,6 @@
 			<string id="RemoteDeniedEntitiesDisplayName">Denied Entities (Remote)</string>
 			<string id="RemoteDeniedEntitiesExplainText">Specifies the security IDs (SIDs) or names of the users or groups denied the ability to gain administrative rights remotely.</string>
 
-			<string id="RenewalsAllowedDisplayName">Number of Renewals Allowed</string>
-			<string id="RenewalsAllowedExplainText">Specifies the number of times that a user can renew their administrative rights.</string>
 
 			<string id="AdminRightsTimeoutDisplayName">Admin Rights Timeout</string>
 			<string id="AdminRightsTimeoutExplainText">Specifies the amount of time, in minutes, for which administrative rights will be granted.</string>
@@ -85,10 +83,6 @@
 
 		</stringTable>
 		<presentationTable>
-			<presentation id="Renewals_Allowed_Spin">
-				<text>The number of times administrative rights can be renewed.</text>
-				<decimalTextBox refId="RenewalsAllowedValue" defaultValue="0" spinStep="1">number of renewals allowed:</decimalTextBox>
-			</presentation>
 			<presentation id="Admin_Rights_Timeout_Spin">
 				<text>The number of minutes for which administrative rights will be granted.</text>
 				<decimalTextBox refId="AdminRightsTimeoutValue" defaultValue="10" spinStep="5">admin rights timeout:</decimalTextBox>

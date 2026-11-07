@@ -208,11 +208,6 @@ namespace SinclairCC.MakeMeAdmin
         /// </param>
         private void RemovalTimerElapsed(object sender, System.Timers.ElapsedEventArgs e)
         {
-            const int ID_YES = 0x00000006;
-            int MB_YESNO = 0x00000004;
-            int MB_ICONINFORMATION = 0x00000040;
-            int MB_DEFBUTTON2 = 0x00000100;
-
             EncryptedSettings encryptedSettings = new EncryptedSettings(EncryptedSettings.SettingsFilePath);
 
             User[] expiredUsers = encryptedSettings.GetExpiredUsers();
@@ -221,60 +216,20 @@ namespace SinclairCC.MakeMeAdmin
             {
                 foreach (User prin in expiredUsers)
                 {
-                    // Get a WindowsIdentity object for the user matching the added user SID.
-                    WindowsIdentity sessionIdentity = null;
-                    WindowsIdentity userIdentity = null;
-                    int response;
-                    int sendToSessionId = 0;
-                    bool performRemoval = true;
-                    int[] currentSessionIds = LsaLogonSessions.LogonSessions.GetLoggedOnUserSessionIds();
-                    foreach (int sessionId in currentSessionIds)
+                    // Expiration always removes the grant. A new request must pass
+                    // through UAC authorization again; a user-only Yes/No prompt is
+                    // not sufficient authorization to extend administrator access.
+                    bool revoked = LocalAdministratorGroup.RemoveUser(prin.Sid, RemovalReason.Timeout);
+                    if (revoked && Settings.EndRemoteSessionsUponExpiration && !string.IsNullOrEmpty(prin.RemoteAddress))
                     {
-                        if (LsaLogonSessions.LogonSessions.GetSidForSessionId(sessionId) == prin.Sid)
+                        string userName = prin.Name;
+                        while (userName.LastIndexOf("\\") >= 0)
                         {
-                            sendToSessionId = sessionId;
+                            userName = userName.Substring(userName.LastIndexOf("\\") + 1);
                         }
-                        sessionIdentity = LsaLogonSessions.LogonSessions.GetWindowsIdentityForSessionId(sessionId);
-                        if ((sessionIdentity != null) && (sessionIdentity.User == prin.Sid))
+                        if (!string.IsNullOrEmpty(userName))
                         {
-                            userIdentity = sessionIdentity;
-                        }
-                    }
-
-                    if ((Settings.RenewalsAllowed > 0) && (prin.RenewalsUsed < Settings.RenewalsAllowed))
-                    {
-                        // TODO: Might want something other than a hard 30 seconds here.
-                        int returnValue = LsaLogonSessions.LogonSessions.SendMessageToSession(sendToSessionId, Properties.Resources.RenewalAllowed, (MB_YESNO + MB_ICONINFORMATION + MB_DEFBUTTON2), 30, out response);
-                        switch (response)
-                        {
-                            case ID_YES:
-                                int timeoutMinutes = AdminGroupManipulator.GetTimeoutForUser(userIdentity);
-                                encryptedSettings.AddedUsers[prin.Sid].ExpirationTime = DateTime.Now.AddMinutes(timeoutMinutes);
-                                encryptedSettings.AddedUsers[prin.Sid].RenewalsUsed++;
-                                encryptedSettings.Save();
-                                performRemoval = false;
-                                break;
-                        }
-                    }
-
-                    if (performRemoval)
-                    {
-                        LocalAdministratorGroup.RemoveUser(prin.Sid, RemovalReason.Timeout);
-
-                        if ((Settings.EndRemoteSessionsUponExpiration) && (!string.IsNullOrEmpty(prin.RemoteAddress)))
-                        {
-                            string userName = prin.Name;
-                            while (userName.LastIndexOf("\\") >= 0)
-                            {
-                                userName = userName.Substring(userName.LastIndexOf("\\") + 1);
-                            }
-
-                            // TODO: Log this return code if it's not a success?
-                            int returnCode = 0;
-                            if (!string.IsNullOrEmpty(userName))
-                            {
-                                returnCode = LocalAdministratorGroup.EndNetworkSession(string.Format(@"\\{0}", prin.RemoteAddress), userName);
-                            }
+                            LocalAdministratorGroup.EndNetworkSession(string.Format(@"\\{0}", prin.RemoteAddress), userName);
                         }
                     }
                 }

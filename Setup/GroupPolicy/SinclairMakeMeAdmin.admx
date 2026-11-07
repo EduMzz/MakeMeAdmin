@@ -73,20 +73,6 @@
 			</elements>
 		</policy>
 
-		<policy name="RenewalsAllowed"
-			 class="Machine"
-			 displayName="$(string.RenewalsAllowedDisplayName)"
-			 explainText="$(string.RenewalsAllowedExplainText)"
-			 key="SOFTWARE\Policies\Sinclair Community College\Make Me Admin"
-			 valueName="Renewals Allowed"
-			 presentation="$(presentation.Renewals_Allowed_Spin)" >
-			<parentCategory ref="makemeadmin:MakeMeAdmin"></parentCategory>
-			<supportedOn ref="windows:SUPPORTED_Windows7" />
-			<elements>
-				<decimal id="RenewalsAllowedValue" required="true" valueName="Renewals Allowed" minValue="0" maxValue="100" storeAsText="false" />
-			</elements>
-		</policy>
-
 		<policy name="AdminRightsTimeout"
 				 class="Machine"
 				 displayName="$(string.AdminRightsTimeoutDisplayName)"
