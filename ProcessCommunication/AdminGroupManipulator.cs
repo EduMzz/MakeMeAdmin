@@ -323,7 +323,7 @@ namespace SinclairCC.MakeMeAdmin
             {
                 string caller = (identity == null) ? "unknown caller" : identity.Name;
                 ApplicationLog.WriteEvent(string.Format("Denied privileged IPC operation from {0}; an authenticated administrator token was not presented.", caller), EventID.RemoteAccessFailure, System.Diagnostics.EventLogEntryType.Warning);
-                throw new UnauthorizedAccessException("An authenticated Windows administrator token is required.");
+                throw new FaultException("An authenticated Windows administrator token is required.");
             }
         }
 
@@ -354,7 +354,7 @@ namespace SinclairCC.MakeMeAdmin
                 {
                     string caller = (identity.User == null) ? identity.Name : identity.User.Value;
                     ApplicationLog.WriteEvent(string.Format("Denied administrator management from {0}: the caller is not the account logged on to session {1}.", caller, sessionID), EventID.RemoteAccessFailure, System.Diagnostics.EventLogEntryType.Warning);
-                    throw new UnauthorizedAccessException("Administrator management from an interactive session must use the administrator account logged on to that session. Use the authorized SSH administrator session for headless management.");
+                    throw new FaultException("Administrator management from an interactive session must use the administrator account logged on to that session. Use the authorized SSH administrator session for headless management.");
                 }
             }
         }

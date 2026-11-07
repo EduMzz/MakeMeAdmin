@@ -55,6 +55,12 @@ namespace SinclairCC.MakeMeAdmin
         private ServiceHost namedPipeServiceHost = null;
 
         /// <summary>
+        /// Loopback-only Windows-authenticated host for administrator management
+        /// clients running in SSH sessions.
+        /// </summary>
+        private ServiceHost localTcpServiceHost = null;
+
+        /// <summary>
         /// A Windows Communication Foundation (WCF) service host which communicates over TCP.
         /// </summary>
         /// <remarks>
@@ -297,6 +303,30 @@ namespace SinclairCC.MakeMeAdmin
             this.namedPipeServiceHost.Open();
         }
 
+        /// <summary>
+        /// Opens a loopback-only endpoint for administrator GUI and command-line
+        /// management. Windows authenticates the caller on every channel.
+        /// </summary>
+        private void OpenLocalTcpServiceHost()
+        {
+            if ((this.localTcpServiceHost != null) && (this.localTcpServiceHost.State == CommunicationState.Opened))
+            {
+                this.localTcpServiceHost.Close();
+            }
+
+            this.localTcpServiceHost = new ServiceHost(typeof(AdminGroupManipulator), new Uri(Settings.LocalTcpServiceBaseAddress));
+            this.localTcpServiceHost.Faulted += ServiceHostFaulted;
+            NetTcpBinding binding = new NetTcpBinding(SecurityMode.Transport)
+            {
+                PortSharingEnabled = false,
+                HostNameComparisonMode = HostNameComparisonMode.Exact,
+                MaxBufferSize = 1048576,
+                MaxReceivedMessageSize = 1048576
+            };
+            this.localTcpServiceHost.AddServiceEndpoint(typeof(IAdminGroup), binding, Settings.LocalTcpServiceBaseAddress);
+            this.localTcpServiceHost.Open();
+        }
+
 
         /// <summary>
         /// Creates the WCF Service Host which is accessible via TCP.
@@ -474,6 +504,11 @@ namespace SinclairCC.MakeMeAdmin
             // Open the service host which is accessible via named pipes.
             this.OpenNamedPipeServiceHost();
 
+            // SSH sessions are Windows network logons. The named-pipe shared
+            // memory namespace intentionally denies those tokens, so admin
+            // management uses a separately authenticated loopback TCP endpoint.
+            this.OpenLocalTcpServiceHost();
+
             // If remote requests are allowed, open the service host which
             // is accessible via TCP.
             if (Settings.AllowRemoteRequests)
@@ -557,6 +592,11 @@ namespace SinclairCC.MakeMeAdmin
             if ((this.namedPipeServiceHost != null) && (this.namedPipeServiceHost.State == CommunicationState.Opened))
             {
                 this.namedPipeServiceHost.Close();
+            }
+
+            if ((this.localTcpServiceHost != null) && (this.localTcpServiceHost.State == CommunicationState.Opened))
+            {
+                this.localTcpServiceHost.Close();
             }
 
             if ((this.tcpServiceHost != null) && (this.tcpServiceHost.State == CommunicationState.Opened))

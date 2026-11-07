@@ -55,7 +55,19 @@ namespace SinclairCC.MakeMeAdmin
         {
             get
             {
-                return string.Format("net.pipe://{0}/MakeMeAdmin/Service", FullyQualifiedHostName);
+                return "net.pipe://localhost/MakeMeAdmin/Service";
+            }
+        }
+
+        /// <summary>
+        /// Gets the loopback-only endpoint used by the administrator GUI and CLI.
+        /// SSH logons cannot access the interactive named-pipe shared-memory namespace.
+        /// </summary>
+        public static string LocalTcpServiceBaseAddress
+        {
+            get
+            {
+                return "net.tcp://127.0.0.1:49632/MakeMeAdmin/LocalService";
             }
         }
 

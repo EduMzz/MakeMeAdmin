@@ -1,5 +1,5 @@
 ﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
-	<Package Name="!(loc.SoftwareName)" Language="!(loc.LANG)" Version="2.5.0" Manufacturer="!(loc.SoftwareManufacturer)" UpgradeCode="9c690479-3987-48a8-8bda-118ef1f93cdd" InstallerVersion="400" Scope="perMachine">
+	<Package Name="!(loc.SoftwareName)" Language="!(loc.LANG)" Version="2.5.6" Manufacturer="!(loc.SoftwareManufacturer)" UpgradeCode="9c690479-3987-48a8-8bda-118ef1f93cdd" InstallerVersion="400" Scope="perMachine">
 		<Launch Condition="Privileged" Message="!(loc.AdminRightsRequired)" />
 		<MajorUpgrade DowngradeErrorMessage="!(loc.NewerVersionInstalled)" Schedule="afterInstallInitialize" />
 		<MediaTemplate EmbedCab="yes" />
@@ -10,15 +10,15 @@
 		     restore it after the new product has written its registry values. -->
 		<CustomAction Id="BackupMakeMeAdminPreferences"
 					  Directory="System64Folder"
-					  ExeCommand="&quot;[System64Folder]powershell.exe&quot; -NoP -C &quot;if(Test-Path 'HKLM:\Software\Sinclair Community College\Make Me Admin'){reg.exe export 'HKLM\Software\Sinclair Community College\Make Me Admin' $env:windir\Installer\MakeMeAdmin.reg /y;exit $LASTEXITCODE}&quot;"
+					  ExeCommand="powershell.exe -NoP -C &quot;if(Test-Path 'HKLM:\Software\Sinclair Community College\Make Me Admin'){reg.exe export 'HKLM\Software\Sinclair Community College\Make Me Admin' $env:windir\Installer\MakeMeAdmin.reg /y;exit $LASTEXITCODE}&quot;"
 					  Execute="immediate" Return="check" />
 		<CustomAction Id="RestoreMakeMeAdminPreferences"
 					  Directory="System64Folder"
-					  ExeCommand="&quot;[System64Folder]powershell.exe&quot; -NoP -C &quot;$b=$env:windir\Installer\MakeMeAdmin.reg;if(Test-Path $b){reg.exe import $b;if(!$?){exit 1};Remove-Item $b -Force -ErrorAction Stop}&quot;"
+					  ExeCommand="powershell.exe -NoProfile -NonInteractive -Command &quot;$b=Join-Path $env:windir 'Installer\MakeMeAdmin.reg';if(Test-Path -LiteralPath $b){&amp; reg.exe import $b;if($LASTEXITCODE -ne 0){exit $LASTEXITCODE};Remove-Item -LiteralPath $b -Force -ErrorAction Stop}&quot;"
 					  Execute="immediate" Return="check" />
 		<InstallExecuteSequence>
 			<Custom Action="BackupMakeMeAdminPreferences" Before="InstallInitialize" Condition="WIX_UPGRADE_DETECTED" />
-			<Custom Action="RestoreMakeMeAdminPreferences" Before="InstallFinalize" />
+			<Custom Action="RestoreMakeMeAdminPreferences" Before="InstallFinalize" Condition="WIX_UPGRADE_DETECTED" />
 		</InstallExecuteSequence>
 
 		<Property Id="ARPPRODUCTICON" Value="SecurityLock.ico" />

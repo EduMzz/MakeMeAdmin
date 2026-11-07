@@ -2,7 +2,7 @@
   <Import Project="Sdk.props" Sdk="WixToolset.Sdk" Version="6.0.2" />
   <PropertyGroup>
     <ProductVersion>3.9</ProductVersion>
-    <OutputName>Make Me Admin 2.5.0 $(Platform)</OutputName>
+    <OutputName>Make Me Admin 2.5.6 $(Platform)</OutputName>
     <IncludeSearchPaths></IncludeSearchPaths>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' ">

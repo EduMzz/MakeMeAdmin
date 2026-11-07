@@ -491,12 +491,15 @@ namespace SinclairCC.MakeMeAdmin
 
         private static IAdminGroup CreateLocalChannel()
         {
-            NetNamedPipeBinding binding = new NetNamedPipeBinding(NetNamedPipeSecurityMode.Transport)
+            NetTcpBinding binding = new NetTcpBinding(SecurityMode.Transport)
             {
+                PortSharingEnabled = false,
                 MaxBufferSize = 1048576,
                 MaxReceivedMessageSize = 1048576
             };
-            ChannelFactory<IAdminGroup> factory = new ChannelFactory<IAdminGroup>(binding, Settings.NamedPipeServiceBaseAddress);
+            string serviceSpn = "HOST/" + Settings.FullyQualifiedHostName;
+            EndpointAddress address = new EndpointAddress(new Uri(Settings.LocalTcpServiceBaseAddress), EndpointIdentity.CreateSpnIdentity(serviceSpn));
+            ChannelFactory<IAdminGroup> factory = new ChannelFactory<IAdminGroup>(binding, address);
             return factory.CreateChannel();
         }
 
