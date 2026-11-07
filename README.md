@@ -48,6 +48,7 @@ The CLI shows each setting's source: `Default`, `Local`, or `Policy`. A Policy-s
 - The encrypted grant database is ACL-restricted to LocalSystem and local Administrators. The standard-user client reads grant status through the service.
 - The original automatic-add settings remain as legacy registry data but no longer authorize grants. The admin UI/CLI shows that automatic grants are disabled, and attempts to set those legacy options are rejected.
 - This protects against bypassing the client while the account remains standard and the administrator credential remains secret. It does not protect against compromise of an administrator credential, a local administrator, or an exploitable Windows/service vulnerability.
+- During an approved grant, Windows places the requester in the local Administrators group. That account can then use ordinary Windows administrator capabilities, including changing the service or creating other privileged accounts. Expiration removes the managed membership in normal operation; it is not a containment boundary against a user who is already acting as a local administrator. Use a brokered, task-specific service instead if the requester must never receive general local-administrator powers.
 
 ## Build
 
