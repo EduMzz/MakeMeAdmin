@@ -35,6 +35,7 @@
     <Reference Include="System" />
     <Reference Include="System.DirectoryServices.AccountManagement" />
     <Reference Include="System.IdentityModel" />
+    <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.ServiceModel" />
   </ItemGroup>
   <ItemGroup>
@@ -44,6 +45,7 @@
     <Compile Include="AdminGroupManipulator.cs" />
     <Compile Include="LocalAdministratorGroup.cs" />
     <Compile Include="NativeMethods.cs" />
+    <Compile Include="RemoteRequestIdentity.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="IAdminGroup.cs" />
     <Compile Include="Properties\Resources.Designer.cs">

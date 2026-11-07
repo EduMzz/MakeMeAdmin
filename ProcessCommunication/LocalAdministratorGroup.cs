@@ -22,6 +22,7 @@ namespace SinclairCC.MakeMeAdmin
 {
     using System;
     using System.DirectoryServices.AccountManagement;
+    using System.Linq;
     using System.Security.Principal;
 
     /// <summary>
@@ -175,14 +176,20 @@ namespace SinclairCC.MakeMeAdmin
         /// <param name="remoteAddress">
         /// The address of the remote host from which a request for administrator rights came, if applicable.
         /// </param>
-        public static void AddUser(WindowsIdentity userIdentity, DateTime? expirationTime, string remoteAddress)
+        public static bool AddUser(WindowsIdentity userIdentity, DateTime? expirationTime, string remoteAddress, bool administratorApproved = false)
         {
             // TODO: Only do this if the user is not a member of the group?
 
-            AdminGroupManipulator adminGroupManipulator = new AdminGroupManipulator();
-            bool userIsAuthorized = adminGroupManipulator.UserIsAuthorized(userIdentity, Settings.LocalAllowedEntities, Settings.LocalDeniedEntities);
+            if ((userIdentity == null) || (userIdentity.User == null) || !expirationTime.HasValue || (expirationTime.Value <= DateTime.Now) || ((expirationTime.Value - DateTime.Now) > TimeSpan.FromMinutes(1440)))
+            {
+                ApplicationLog.WriteEvent("Rejected a Make Me Admin grant with an invalid identity or duration.", EventID.UserAddedToAdminsFailure, System.Diagnostics.EventLogEntryType.Warning);
+                return false;
+            }
 
-            if (!string.IsNullOrEmpty(remoteAddress))
+            AdminGroupManipulator adminGroupManipulator = new AdminGroupManipulator();
+            bool userIsAuthorized = administratorApproved || adminGroupManipulator.UserIsAuthorized(userIdentity, Settings.LocalAllowedEntities, Settings.LocalDeniedEntities);
+
+            if ((!administratorApproved) && (!string.IsNullOrEmpty(remoteAddress)))
             { // Request is from a remote computer. Check the remote authorization list.
                 userIsAuthorized &= adminGroupManipulator.UserIsAuthorized(userIdentity, Settings.RemoteAllowedEntities, Settings.RemoteDeniedEntities);
             }
@@ -209,8 +216,49 @@ namespace SinclairCC.MakeMeAdmin
                 EncryptedSettings encryptedSettings = new EncryptedSettings(EncryptedSettings.SettingsFilePath);
                 encryptedSettings.AddUser(userIdentity, expirationTime, remoteAddress);
 
-                AddUserToAdministrators(userIdentity.User);
+                try
+                {
+                    if (AddUserToAdministrators(userIdentity.User)) { return true; }
+                }
+                catch
+                {
+                    encryptedSettings.RemoveUser(userIdentity.User);
+                    throw;
+                }
+
+                encryptedSettings.RemoveUser(userIdentity.User);
             }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Adds a destination-side grant for a remote requester after its service has
+        /// authenticated an administrator token and checked remote request policy.
+        /// </summary>
+        public static bool AddRemoteUser(SecurityIdentifier userSid, string name, DateTime? expirationTime, string remoteAddress)
+        {
+            if ((userSid == null) || !userSid.IsAccountSid() || string.IsNullOrWhiteSpace(name)
+                || !expirationTime.HasValue || (expirationTime.Value <= DateTime.Now)
+                || ((expirationTime.Value - DateTime.Now) > TimeSpan.FromMinutes(1440)))
+            {
+                ApplicationLog.WriteEvent("Rejected a remote Make Me Admin grant with an invalid identity or duration.", EventID.UserAddedToAdminsFailure, System.Diagnostics.EventLogEntryType.Warning);
+                return false;
+            }
+
+            EncryptedSettings encryptedSettings = new EncryptedSettings(EncryptedSettings.SettingsFilePath);
+            encryptedSettings.AddUser(userSid, name, expirationTime, remoteAddress);
+            try
+            {
+                if (AddUserToAdministrators(userSid)) { return true; }
+            }
+            catch
+            {
+                encryptedSettings.RemoveUser(userSid);
+                throw;
+            }
+            encryptedSettings.RemoveUser(userSid);
+            return false;
         }
 
         /// <summary>
@@ -243,259 +291,184 @@ namespace SinclairCC.MakeMeAdmin
         /// <param name="reason">
         /// The reason for the removal.
         /// </param>
-        public static void RemoveUser(SecurityIdentifier userSid, RemovalReason reason)
+        public static bool RemoveUser(SecurityIdentifier userSid, RemovalReason reason)
         {
-            // TODO: Only do this if the user is a member of the group?
+            if ((userSid == null) || !Enum.IsDefined(typeof(RemovalReason), reason)) { return false; }
 
-            if ((!string.IsNullOrEmpty(LocalAdminGroupName)) && (userSid != null))
+            if (string.IsNullOrEmpty(LocalAdminGroupName)) { return false; }
+            SecurityIdentifier[] localAdminSids = GetLocalGroupMembers(LocalAdminGroupName);
+            if (localAdminSids == null)
             {
-                SecurityIdentifier[] localAdminSids = GetLocalGroupMembers(LocalAdminGroupName);
+                ApplicationLog.WriteEvent(string.Format("Could not verify Administrators membership for {0}; the temporary-grant record was retained for retry.", userSid.Value), EventID.UserRemovedFromAdminsFailure, System.Diagnostics.EventLogEntryType.Warning);
+                return false;
+            }
 
-                foreach (SecurityIdentifier sid in localAdminSids)
+            foreach (SecurityIdentifier sid in localAdminSids)
+            {
+                if (sid != userSid) { continue; }
+
+                string accountName = GetAccountNameFromSID(userSid);
+                int result = RemoveLocalGroupMembers(LocalAdminGroupName, userSid);
+                if (result == 0)
                 {
-                    if (sid == userSid)
+                    EncryptedSettings encryptedSettings = new EncryptedSettings(EncryptedSettings.SettingsFilePath);
+                    encryptedSettings.RemoveUser(userSid);
+
+                    string reasonString = Properties.Resources.RemovalReasonUnknown;
+                    switch (reason)
                     {
-                        string accountName = GetAccountNameFromSID(userSid);
-                        int result = RemoveLocalGroupMembers(LocalAdminGroupName, userSid);
-                        if (result == 0)
+                        case RemovalReason.ServiceStopped:
+                            reasonString = Properties.Resources.RemovalReasonServiceStopped;
+                            break;
+                        case RemovalReason.Timeout:
+                            reasonString = Properties.Resources.RemovalReasonTimeout;
+                            break;
+                        case RemovalReason.UserLogoff:
+                            reasonString = Properties.Resources.RemovalReasonUserLogoff;
+                            break;
+                        case RemovalReason.UserRequest:
+                            reasonString = Properties.Resources.RemovalReasonUserRequest;
+                            break;
+                    }
+                    string message = string.Format(Properties.Resources.UserRemoved, userSid, accountName, reasonString);
+                    ApplicationLog.WriteEvent(message, EventID.UserRemovedFromAdminsSuccess, System.Diagnostics.EventLogEntryType.Information);
+
+
+
+                    if (Settings.LogOffAfterExpiration > 0)
+                    {
+                        // Get a WindowsIdentity object for the user matching the added user SID.
+                        WindowsIdentity sessionIdentity = null;
+                        WindowsIdentity userIdentity = null;
+                        int sendToSessionId = 0;
+                        /*bool performRemoval = true;*/
+                        int[] currentSessionIds = LsaLogonSessions.LogonSessions.GetLoggedOnUserSessionIds();
+                        foreach (int sessionId in currentSessionIds)
                         {
-                            EncryptedSettings encryptedSettings = new EncryptedSettings(EncryptedSettings.SettingsFilePath);
-                            encryptedSettings.RemoveUser(userSid);
-
-                            string reasonString = Properties.Resources.RemovalReasonUnknown;
-                            switch (reason)
+                            if (LsaLogonSessions.LogonSessions.GetSidForSessionId(sessionId) == userSid)
                             {
-                                case RemovalReason.ServiceStopped:
-                                    reasonString = Properties.Resources.RemovalReasonServiceStopped;
-                                    break;
-                                case RemovalReason.Timeout:
-                                    reasonString = Properties.Resources.RemovalReasonTimeout;
-                                    break;
-                                case RemovalReason.UserLogoff:
-                                    reasonString = Properties.Resources.RemovalReasonUserLogoff;
-                                    break;
-                                case RemovalReason.UserRequest:
-                                    reasonString = Properties.Resources.RemovalReasonUserRequest;
-                                    break;
+                                sendToSessionId = sessionId;
                             }
-                            string message = string.Format(Properties.Resources.UserRemoved, userSid, accountName, reasonString);
-                            ApplicationLog.WriteEvent(message, EventID.UserRemovedFromAdminsSuccess, System.Diagnostics.EventLogEntryType.Information);
-
-
-
-                            if (Settings.LogOffAfterExpiration > 0)
+                            sessionIdentity = LsaLogonSessions.LogonSessions.GetWindowsIdentityForSessionId(sessionId);
+                            if ((sessionIdentity != null) && (sessionIdentity.User == userSid))
                             {
-                                int MB_OK = 0x0;
-                                int MB_ICONWARNING = 0x00000030;
-
-                                // Get a WindowsIdentity object for the user matching the added user SID.
-                                WindowsIdentity sessionIdentity = null;
-                                WindowsIdentity userIdentity = null;
-                                int sendToSessionId = 0;
-                                /*bool performRemoval = true;*/
-                                int[] currentSessionIds = LsaLogonSessions.LogonSessions.GetLoggedOnUserSessionIds();
-                                foreach (int sessionId in currentSessionIds)
-                                {
-                                    if (LsaLogonSessions.LogonSessions.GetSidForSessionId(sessionId) == userSid)
-                                    {
-                                        sendToSessionId = sessionId;
-                                    }
-                                    sessionIdentity = LsaLogonSessions.LogonSessions.GetWindowsIdentityForSessionId(sessionId);
-                                    if ((sessionIdentity != null) && (sessionIdentity.User == userSid))
-                                    {
-                                        userIdentity = sessionIdentity;
-                                    }
-                                }
-                                int response = 0;
-
-                                System.Text.StringBuilder messageBuilder = new System.Text.StringBuilder();
-                                for (int i = 0; i < Settings.LogOffMessage.Length; i++)
-                                {
-                                    if (i == (Settings.LogOffMessage.Length - 1))
-                                    {
-                                        messageBuilder.Append(Settings.LogOffMessage[i]);
-                                    }
-                                    else
-                                    {
-                                        messageBuilder.AppendLine(Settings.LogOffMessage[i]);
-                                    }
-                                }
-                                int returnValue = LsaLogonSessions.LogonSessions.SendMessageToSession(sendToSessionId, messageBuilder.ToString(), (MB_OK + MB_ICONWARNING), Settings.LogOffAfterExpiration, out response);
-                                returnValue = LsaLogonSessions.LogonSessions.LogoffSession(sendToSessionId);
+                                userIdentity = sessionIdentity;
                             }
-
                         }
-                        else
+                        int response = 0;
+
+                        System.Text.StringBuilder messageBuilder = new System.Text.StringBuilder();
+                        for (int i = 0; i < Settings.LogOffMessage.Length; i++)
                         {
-                            ApplicationLog.WriteEvent(string.Format(Properties.Resources.RemovingUserReturnedError, userSid, accountName, result), EventID.UserRemovedFromAdminsFailure, System.Diagnostics.EventLogEntryType.Warning);
+                            if (i == (Settings.LogOffMessage.Length - 1))
+                            {
+                                messageBuilder.Append(Settings.LogOffMessage[i]);
+                            }
+                            else
+                            {
+                                messageBuilder.AppendLine(Settings.LogOffMessage[i]);
+                            }
                         }
+                        int returnValue = LsaLogonSessions.LogonSessions.SendMessageToSession(sendToSessionId, messageBuilder.ToString(), 0x0 + 0x00000030, Settings.LogOffAfterExpiration, out response);
+                        returnValue = LsaLogonSessions.LogonSessions.LogoffSession(sendToSessionId);
                     }
                 }
+                else
+                {
+                    ApplicationLog.WriteEvent(string.Format(Properties.Resources.RemovingUserReturnedError, userSid, accountName, result), EventID.UserRemovedFromAdminsFailure, System.Diagnostics.EventLogEntryType.Warning);
+                    return false;
+                }
+                return true;
             }
+
+            // If membership was confirmed absent, clear the stale grant record.
+            EncryptedSettings trackedGrants = new EncryptedSettings(EncryptedSettings.SettingsFilePath);
+            if (trackedGrants.ContainsSID(userSid))
+            {
+                trackedGrants.RemoveUser(userSid);
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
         /// Validates that all of the users stored in the on-disk user list
         /// are in the local Administrators group if they're supposed to be, and vice-versa.
         /// </summary>
-        public static void ValidateAllAddedUsers()
+        public static void ValidateAllAddedUsers(bool failOnCleanupError = false)
         {
-            // Get a list of the users stored in the on-disk list.
             EncryptedSettings encryptedSettings = new EncryptedSettings(EncryptedSettings.SettingsFilePath);
             SecurityIdentifier[] addedUserList = encryptedSettings.AddedUserSIDs;
-
-            // Get a list of the current members of the Administrators group.
-            SecurityIdentifier[] localAdminSids = null;
-            if ((addedUserList.Length > 0) && (!string.IsNullOrEmpty(LocalAdminGroupName)))
+            SecurityIdentifier[] localAdminSids = (addedUserList.Length > 0) ? GetLocalGroupMembers(LocalAdminGroupName) : new SecurityIdentifier[0];
+            if ((addedUserList.Length > 0) && (localAdminSids == null))
             {
-                localAdminSids = GetLocalGroupMembers(LocalAdminGroupName);
+                const string message = "Could not query the local Administrators group while validating temporary grants.";
+                ApplicationLog.WriteEvent(message, EventID.UserRemovedFromAdminsFailure, System.Diagnostics.EventLogEntryType.Error);
+                if (failOnCleanupError) { throw new InvalidOperationException(message + " The service will not expose its management channel until membership can be verified."); }
+                return;
             }
 
-            for (int i = 0; i < addedUserList.Length; i++)
+            foreach (SecurityIdentifier userSid in addedUserList)
             {
-                bool sidFoundInAdminsGroup = false;
-                if ((addedUserList[i] != null) && (localAdminSids != null))
+                if (userSid == null) { continue; }
+
+                bool isDirectMember = (localAdminSids != null) && Array.Exists(localAdminSids, sid => sid == userSid);
+                DateTime? expirationTime = encryptedSettings.GetExpirationTime(userSid);
+
+                // Older releases could persist non-expiring automatic grants. Remove
+                // those memberships and records during upgrade; no automatic grant
+                // path is permitted in this version.
+                if (!expirationTime.HasValue)
                 {
-                    foreach (SecurityIdentifier sid in localAdminSids)
+                    ApplicationLog.WriteEvent(string.Format("Removing legacy non-expiring Make Me Admin grant for {0}; automatic grants are disabled.", userSid.Value), EventID.UserRemovedFromAdminsSuccess, System.Diagnostics.EventLogEntryType.Warning);
+                    if (isDirectMember && !LocalAdministratorGroup.RemoveUser(userSid, RemovalReason.Timeout))
                     {
-                        if (sid == addedUserList[i])
-                        {
-                            sidFoundInAdminsGroup = true;
-                            break;
-                        }
+                        if (failOnCleanupError) { throw new InvalidOperationException("A legacy non-expiring administrator grant could not be removed for " + userSid.Value + "."); }
                     }
+                    else { encryptedSettings.RemoveUser(userSid); }
 
-                    AdminGroupManipulator adminGroup = new AdminGroupManipulator();
+                    if (new EncryptedSettings(EncryptedSettings.SettingsFilePath).ContainsSID(userSid))
+                    {
+                        if (failOnCleanupError) { throw new InvalidOperationException("A legacy non-expiring Make Me Admin grant could not be removed. The service will not expose its management channel until the grant is cleaned up."); }
+                        continue;
+                    }
+                    continue;
+                }
 
-                    if (sidFoundInAdminsGroup)
-                    {  // User's SID was found in the local administrators group.
-
-                        DateTime? expirationTime = encryptedSettings.GetExpirationTime(addedUserList[i]);
-
-                        if (expirationTime.HasValue)
-                        { // The user's rights expire at some point.
-                            if (expirationTime.Value > DateTime.Now)
-                            { // The user's administrator rights expire in the future.
-
-                                // Nothing to do here, since the user is already in the administrators group.
-
-                            }
-                            else
-                            { // The user's administrator rights have expired.
-                                LocalAdministratorGroup.RemoveUser(addedUserList[i], RemovalReason.Timeout);
-                            }
-                        }
-
-                        else
-                        { // The user's rights never expire.
-
-                            // Get a WindowsIdentity object for the user matching the added user SID.
-                            WindowsIdentity sessionIdentity = null;
-                            WindowsIdentity userIdentity = null;
-                            int[] loggedOnSessionIDs = LsaLogonSessions.LogonSessions.GetLoggedOnUserSessionIds();
-                            foreach (int sessionId in loggedOnSessionIDs)
-                            {
-                                sessionIdentity = LsaLogonSessions.LogonSessions.GetWindowsIdentityForSessionId(sessionId);
-                                if ((sessionIdentity != null) && (sessionIdentity.User == addedUserList[i]))
-                                {
-                                    userIdentity = sessionIdentity;
-                                    break;
-                                }
-                            }
-
-                            if (
-                                (Settings.AutomaticAddAllowed != null) &&
-                                (Settings.AutomaticAddAllowed.Length > 0) &&
-                                (adminGroup.UserIsAuthorized(userIdentity, Settings.AutomaticAddAllowed, Settings.AutomaticAddDenied))
-                               )
-                            { // The user is an automatically-added user.
-
-                                // Nothing to do here. The user is an automatically-added one, and their rights don't expire.
-                            }
-                            else
-                            { // The user is not an automatically-added user.
-
-                                // Users who are not automatically added should not have non-expiring rights. Remove this user.
-                                LocalAdministratorGroup.RemoveUser(addedUserList[i], RemovalReason.Timeout);
-                            }
+                if (expirationTime.Value <= DateTime.Now)
+                {
+                    if (isDirectMember)
+                    {
+                        bool removed = LocalAdministratorGroup.RemoveUser(userSid, RemovalReason.Timeout);
+                        if (!removed && failOnCleanupError)
+                        {
+                            throw new InvalidOperationException("An expired temporary administrator grant could not be removed for " + userSid.Value + ".");
                         }
                     }
                     else
-                    { // User's SID was not found in the local administrators group.
+                    {
+                        encryptedSettings.RemoveUser(userSid);
+                    }
+                    continue;
+                }
 
-                        DateTime? expirationTime = encryptedSettings.GetExpirationTime(addedUserList[i]);
-
-                        if (expirationTime.HasValue)
-                        { // The user's rights expire at some point.
-                            if (expirationTime.Value > DateTime.Now)
-                            { // The user's administrator rights expire in the future.
-                                string accountName = GetAccountNameFromSID(addedUserList[i]);
-                                if (Settings.OverrideRemovalByOutsideProcess)
-                                {
-                                    ApplicationLog.WriteEvent(string.Format(Properties.Resources.UserRemovedByOutsideProcess + " " + Properties.Resources.AddingUserBackToAdministrators, addedUserList[i], string.IsNullOrEmpty(accountName) ? Properties.Resources.UnknownAccount : accountName), EventID.UserRemovedByExternalProcess, System.Diagnostics.EventLogEntryType.Information);
-                                    AddUserToAdministrators(addedUserList[i]);
-                                }
-                                else
-                                {
-                                    ApplicationLog.WriteEvent(string.Format(Properties.Resources.UserRemovedByOutsideProcess + " " + Properties.Resources.RemovingUserFromList, addedUserList[i], string.IsNullOrEmpty(accountName) ? Properties.Resources.UnknownAccount : accountName), EventID.UserRemovedByExternalProcess, System.Diagnostics.EventLogEntryType.Information);
-                                    encryptedSettings.RemoveUser(addedUserList[i]);
-                                }
-                            }
-                            else
-                            { // The user's administrator rights have expired.
-                              // No need to remove from the administrators group, as we already know the SID
-                              // is not present in the group.
-
-                                encryptedSettings.RemoveUser(addedUserList[i]);
-
-                            }
-                        }
-                        else
-                        { // The user's rights never expire.
-
-                            // Get a WindowsIdentity object for the user matching the added user SID.
-                            WindowsIdentity sessionIdentity = null;
-                            WindowsIdentity userIdentity = null;
-                            int[] loggedOnSessionIDs = LsaLogonSessions.LogonSessions.GetLoggedOnUserSessionIds();
-                            foreach (int sessionId in loggedOnSessionIDs)
-                            {
-                                sessionIdentity = LsaLogonSessions.LogonSessions.GetWindowsIdentityForSessionId(sessionId);
-                                if ((sessionIdentity != null) && (sessionIdentity.User == addedUserList[i]))
-                                {
-                                    userIdentity = sessionIdentity;
-                                    break;
-                                }
-                            }
-
-                            if (
-                                (Settings.AutomaticAddAllowed != null) &&
-                                (Settings.AutomaticAddAllowed.Length > 0) &&
-                                (adminGroup.UserIsAuthorized(userIdentity, Settings.AutomaticAddAllowed, Settings.AutomaticAddDenied))
-                               )
-                            { // The user is an automatically-added user.
-
-                                // The users rights do not expire, but they are an automatically-added user and are missing
-                                // from the Administrators group. Add the user back in.
-
-                                AddUserToAdministrators(addedUserList[i]);
-                            }
-                            else
-                            { // The user is not an automatically-added user.
-
-                                // The user is not in the Administrators group now, but they are
-                                // listed as having non-expiring rights, even though they are not
-                                // automatically added. This should never really happen, but
-                                // just in case, we'll remove them from the on-disk user list.
-                                encryptedSettings.RemoveUser(addedUserList[i]);
-
-                            }
-
-                        }
+                if (!isDirectMember)
+                {
+                    string accountName = GetAccountNameFromSID(userSid);
+                    if (Settings.OverrideRemovalByOutsideProcess)
+                    {
+                        ApplicationLog.WriteEvent(string.Format(Properties.Resources.UserRemovedByOutsideProcess + " " + Properties.Resources.AddingUserBackToAdministrators, userSid, string.IsNullOrEmpty(accountName) ? Properties.Resources.UnknownAccount : accountName), EventID.UserRemovedByExternalProcess, System.Diagnostics.EventLogEntryType.Information);
+                        AddUserToAdministrators(userSid);
+                    }
+                    else
+                    {
+                        ApplicationLog.WriteEvent(string.Format(Properties.Resources.UserRemovedByOutsideProcess + " " + Properties.Resources.RemovingUserFromList, userSid, string.IsNullOrEmpty(accountName) ? Properties.Resources.UnknownAccount : accountName), EventID.UserRemovedByExternalProcess, System.Diagnostics.EventLogEntryType.Information);
+                        encryptedSettings.RemoveUser(userSid);
                     }
                 }
             }
         }
-
 
         /// <summary>
         /// Gets the human-friendly account name corresponding to a given
@@ -686,33 +659,41 @@ namespace SinclairCC.MakeMeAdmin
         /// </returns>
         private static SecurityIdentifier[] GetLocalGroupMembers(string GroupName)
         {
-            SecurityIdentifier[] returnValue = null;
             IntPtr buffer = IntPtr.Zero;
             IntPtr Resume = IntPtr.Zero;
 
-            int val = NativeMethods.NetLocalGroupGetMembers(null, GroupName, 0, out buffer, -1, out int EntriesRead, out int TotalEntries, Resume);
-            if (EntriesRead > 0)
+            int result = NativeMethods.NetLocalGroupGetMembers(null, GroupName, 0, out buffer, -1, out int EntriesRead, out int TotalEntries, Resume);
+            try
             {
-                returnValue = new SecurityIdentifier[EntriesRead];
-                NativeMethods.LOCALGROUP_MEMBERS_INFO_0[] Members = new NativeMethods.LOCALGROUP_MEMBERS_INFO_0[EntriesRead];
+                if (result != 0)
+                {
+                    ApplicationLog.WriteEvent(string.Format("Windows could not enumerate local group {0}; NetLocalGroupGetMembers returned {1}.", GroupName, result), EventID.UserRemovedFromAdminsFailure, System.Diagnostics.EventLogEntryType.Warning);
+                    return null;
+                }
+                if ((EntriesRead < 0) || (EntriesRead > TotalEntries) || ((EntriesRead > 0) && (buffer == IntPtr.Zero)))
+                {
+                    ApplicationLog.WriteEvent(string.Format("Windows returned an invalid member list for local group {0}.", GroupName), EventID.UserRemovedFromAdminsFailure, System.Diagnostics.EventLogEntryType.Warning);
+                    return null;
+                }
+                if (EntriesRead == 0) { return new SecurityIdentifier[0]; }
+
+                SecurityIdentifier[] members = new SecurityIdentifier[EntriesRead];
                 IntPtr iter = buffer;
                 for (int i = 0; i < EntriesRead; i++)
                 {
-                    Members[i] = (NativeMethods.LOCALGROUP_MEMBERS_INFO_0)System.Runtime.InteropServices.Marshal.PtrToStructure(iter, typeof(NativeMethods.LOCALGROUP_MEMBERS_INFO_0));
+                    NativeMethods.LOCALGROUP_MEMBERS_INFO_0 member = (NativeMethods.LOCALGROUP_MEMBERS_INFO_0)System.Runtime.InteropServices.Marshal.PtrToStructure(iter, typeof(NativeMethods.LOCALGROUP_MEMBERS_INFO_0));
                     iter = (IntPtr)((long)iter + System.Runtime.InteropServices.Marshal.SizeOf(typeof(NativeMethods.LOCALGROUP_MEMBERS_INFO_0)));
-                    if (Members[i].lgrmi0_sid != IntPtr.Zero)
+                    if (member.lgrmi0_sid != IntPtr.Zero)
                     {
-                        SecurityIdentifier sid = new SecurityIdentifier(Members[i].lgrmi0_sid);
-                        returnValue[i] = sid;
-                    }
-                    else
-                    {
-                        returnValue[i] = null;
+                        members[i] = new SecurityIdentifier(member.lgrmi0_sid);
                     }
                 }
-                NativeMethods.NetApiBufferFree(buffer);
+                return members;
             }
-            return returnValue;
+            finally
+            {
+                if (buffer != IntPtr.Zero) { NativeMethods.NetApiBufferFree(buffer); }
+            }
         }
 
         /// <summary>
@@ -733,17 +714,10 @@ namespace SinclairCC.MakeMeAdmin
         /// </remarks>
         public static bool IsMemberOfAdministratorsDirectly(WindowsIdentity userIdentity)
         {
+            if ((userIdentity == null) || (userIdentity.User == null)) { throw new ArgumentException("An authenticated user identity is required.", "userIdentity"); }
             SecurityIdentifier[] localAdminSids = GetLocalGroupMembers(LocalAdminGroupName);
-
-            bool isMember = false;
-
-            foreach (SecurityIdentifier sid in localAdminSids)
-            {
-                isMember = sid.Equals(userIdentity.User);
-                if (isMember) { break; }
-            }
-
-            return isMember;
+            if (localAdminSids == null) { throw new InvalidOperationException("Could not verify local Administrators membership."); }
+            return Array.Exists(localAdminSids, sid => (sid != null) && sid.Equals(userIdentity.User));
         }
 
         /// <summary>
@@ -764,6 +738,7 @@ namespace SinclairCC.MakeMeAdmin
             if (!isMember)
             {
                 SecurityIdentifier[] localAdminSids = GetLocalGroupMembers(LocalAdminGroupName);
+                if (localAdminSids == null) { throw new InvalidOperationException("Could not verify local Administrators membership."); }
 
                 // We can't use userIdentity.Groups here, because it does not include group memberships
                 // that are used for deny-only.
@@ -781,6 +756,25 @@ namespace SinclairCC.MakeMeAdmin
             }
 
             return isMember;
+        }
+
+        /// <summary>
+        /// Checks a remote identity snapshot against direct local Administrators
+        /// members. The snapshot was resolved from the requester's authenticated
+        /// interactive token on the originating machine.
+        /// </summary>
+        public static bool IsMemberOfAdministrators(SecurityIdentifier userSid, SecurityIdentifier[] groupSids)
+        {
+            if (userSid == null) { return false; }
+            if (string.IsNullOrEmpty(LocalAdminGroupName)) { return false; }
+            SecurityIdentifier[] localAdminSids = GetLocalGroupMembers(LocalAdminGroupName);
+            if (localAdminSids == null) { throw new InvalidOperationException("Could not verify local Administrators membership for the remote requester."); }
+            foreach (SecurityIdentifier adminMemberSid in localAdminSids)
+            {
+                if (adminMemberSid == userSid) { return true; }
+                if ((groupSids != null) && groupSids.Any(groupSid => groupSid == adminMemberSid)) { return true; }
+            }
+            return false;
         }
 
 

@@ -230,13 +230,25 @@ namespace SinclairCC.MakeMeAdmin
                     return ProcessSyslogServerStrings(preferenceSyslogEntries);
                 }
             }
-            // TODO: Implement set for this setting.
-            /*
             set
             {
-                SetMultiString(PreferenceRegistryKeyPath, null, "syslog servers", value);
+                if (value == null)
+                {
+                    SetMultiString(PreferenceRegistryKeyPath, null, "syslog servers", null);
+                    return;
+                }
+
+                List<string> entries = new List<string>();
+                foreach (SyslogServerInfo server in value)
+                {
+                    if ((server == null) || !server.IsValid)
+                    {
+                        throw new ArgumentException("Every syslog endpoint must have a valid host, protocol (udp/tcp), port and RFC (3164/5424).", "value");
+                    }
+                    entries.Add(string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0}:{1}:{2}:{3}", server.Hostname, server.Port, server.Protocol, server.RFC));
+                }
+                SetMultiString(PreferenceRegistryKeyPath, null, "syslog servers", entries.ToArray());
             }
-            */
         }
 
         /// <summary>
@@ -498,25 +510,50 @@ namespace SinclairCC.MakeMeAdmin
         {
             get
             {
-                int? policyOverrideSetting = GetDWord(PolicyRegistryKeyPath, null, "Require Authentication For Privileges");
-                int? preferenceOverrideSetting = GetDWord(PreferenceRegistryKeyPath, null, "Require Authentication For Privileges");
-                if (policyOverrideSetting.HasValue)
-                { // The policy setting has a value. Go with whatever it says.
-                    return Convert.ToBoolean(policyOverrideSetting.Value);
-                }
-                else if (preferenceOverrideSetting.HasValue)
-                { // The preference setting has a value. Go with whatever it says.
-                    return Convert.ToBoolean(preferenceOverrideSetting.Value);
-                }
-                else
-                { // Neither the policy nor the preference registry entries had a value. Return a default value of false.
-                    return false;
-                }
+                // Local grants now always require the native Windows elevation prompt.
+                // Preserve the old property for compatibility, but never permit policy
+                // or preference values to turn the authentication requirement off.
+                return true;
             }
             set
             {
-                SetDWord(PreferenceRegistryKeyPath, null, "Require Authentication For Privileges", Convert.ToInt32(value));
+                SetDWord(PreferenceRegistryKeyPath, null, "Require Authentication For Privileges", 1);
             }
+        }
+
+        /// <summary>
+        /// Indicates whether Windows is configured to show local-user elevation
+        /// prompts on the secure desktop and require UAC credentials. A missing
+        /// registry value uses the documented Windows default; malformed values
+        /// fail closed.
+        /// </summary>
+        public static bool UserGrantUacSecurityRequirementsSatisfied
+        {
+            get
+            {
+                try
+                {
+                    using (RegistryKey systemPolicy = Registry.LocalMachine.OpenSubKey(
+                        @"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", false))
+                    {
+                        if (systemPolicy == null) { return true; }
+                        int standardUserPrompt = ReadSystemPolicyDword(systemPolicy, "ConsentPromptBehaviorUser", 3);
+                        return (ReadSystemPolicyDword(systemPolicy, "EnableLUA", 1) == 1)
+                            && (ReadSystemPolicyDword(systemPolicy, "PromptOnSecureDesktop", 1) == 1)
+                            && ((standardUserPrompt == 1) || (standardUserPrompt == 3));
+                    }
+                }
+                catch (System.Security.SecurityException) { return false; }
+                catch (UnauthorizedAccessException) { return false; }
+                catch (System.IO.IOException) { return false; }
+            }
+        }
+
+        private static int ReadSystemPolicyDword(RegistryKey key, string valueName, int defaultValue)
+        {
+            object value = key.GetValue(valueName, defaultValue, RegistryValueOptions.DoNotExpandEnvironmentNames);
+            if (!(value is int)) { return 0; }
+            return (int)value;
         }
 
         // TODO: i18n.
@@ -816,6 +853,58 @@ namespace SinclairCC.MakeMeAdmin
             // The user does not have the necessary registry rights.
             catch (UnauthorizedAccessException) { }
 
+        }
+
+        /// <summary>
+        /// Reports which registry layer supplies a setting. Policy values take precedence
+        /// over local preferences and are deliberately not overwritten by the management CLI.
+        /// </summary>
+        public static string GetConfigurationSource(string settingName)
+        {
+            System.Collections.Generic.Dictionary<string, string> names = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "LocalAllowedEntities", "Allowed Entities" }, { "LocalDeniedEntities", "Denied Entities" },
+                { "AutomaticAddAllowed", "Automatic Add Allowed" }, { "AutomaticAddDenied", "Automatic Add Denied" },
+                { "RemoteAllowedEntities", "Remote Allowed Entities" }, { "RemoteDeniedEntities", "Remote Denied Entities" },
+                { "SyslogServers", "syslog servers" }, { "RenewalsAllowed", "Renewals Allowed" },
+                { "AdminRightsTimeout", "Admin Rights Timeout" }, { "LogOffAfterExpiration", "Log Off After Expiration" },
+                { "LogOffMessage", "Log Off Message" }, { "RemoveAdminRightsOnLogout", "Remove Admin Rights On Logout" },
+                { "OverrideRemovalByOutsideProcess", "Override Removal By Outside Process" },
+                { "AllowRemoteRequests", "Allow Remote Requests" }, { "EndRemoteSessionsUponExpiration", "End Remote Sessions Upon Expiration" },
+                { "CloseApplicationOnExpiration", "Close Application Upon Expiration" }, { "PromptForReason", "Prompt For Reason" },
+                { "AllowFreeTextReason", "Allow Free Form Reason" }, { "CannedReasons", "Canned Reasons" },
+                { "LogElevatedProcesses", "Log Elevated Processes" }, { "MaximumReasonLength", "Maximum Reason Length" },
+                { "TCPServicePort", "TCP Service Port" }, { "TimeoutOverrides", "Timeout Overrides" }
+            };
+
+            string valueName;
+            if ((settingName == null) || !names.TryGetValue(settingName, out valueName))
+            {
+                throw new ArgumentException("Unknown Make Me Admin setting.", "settingName");
+            }
+
+            string subkey = string.Equals(settingName, "TimeoutOverrides", StringComparison.OrdinalIgnoreCase) ? "Timeout Overrides" : null;
+            using (RegistryKey policyKey = Registry.LocalMachine.OpenSubKey(PolicyRegistryKeyPath + (subkey == null ? string.Empty : "\\" + subkey), false))
+            {
+                if (policyKey != null)
+                {
+                    object policyValue = policyKey.GetValue(valueName, null);
+                    if (policyValue != null) { return "Policy"; }
+                    if (string.Equals(settingName, "TimeoutOverrides", StringComparison.OrdinalIgnoreCase) && policyKey.ValueCount > 0) { return "Policy"; }
+                }
+            }
+
+            using (RegistryKey localKey = Registry.LocalMachine.OpenSubKey(PreferenceRegistryKeyPath + (subkey == null ? string.Empty : "\\" + subkey), false))
+            {
+                if (localKey != null)
+                {
+                    object localValue = localKey.GetValue(valueName, null);
+                    if (localValue != null) { return "Local"; }
+                    if (string.Equals(settingName, "TimeoutOverrides", StringComparison.OrdinalIgnoreCase) && localKey.ValueCount > 0) { return "Local"; }
+                }
+            }
+
+            return "Default";
         }
 
         /// <summary>
@@ -1127,6 +1216,10 @@ namespace SinclairCC.MakeMeAdmin
             RegistryKey settingsKey = rootRegistryKey.CreateSubKey(keyPath, RegistryKeyPermissionCheck.ReadWriteSubTree);
             if (settingsKey != null)
             {
+                foreach (string existingName in settingsKey.GetValueNames())
+                {
+                    settingsKey.DeleteValue(existingName, false);
+                }
                 foreach (string valueName in values.Keys)
                 {
                     settingsKey.SetValue(valueName, values[valueName], RegistryValueKind.String);

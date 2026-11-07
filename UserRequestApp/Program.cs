@@ -32,11 +32,13 @@ namespace SinclairCC.MakeMeAdmin
         /// The main entry point for the application.
         /// </summary>
         [STAThread]
-        internal static void Main()
+        internal static void Main(string[] args)
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new SubmitRequestForm());
+            Application.Run((args != null) && (args.Length == 1) && string.Equals(args[0], "--remote", StringComparison.OrdinalIgnoreCase)
+                ? (Form)new RemoteRequestForm()
+                : new SubmitRequestForm());
         }
     }
 }

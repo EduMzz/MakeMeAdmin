@@ -25,6 +25,9 @@ namespace SinclairCC.MakeMeAdmin
 {
     internal class NativeMethods
     {
+        [DllImport("advapi32.dll", SetLastError = true)]
+        internal static extern bool GetTokenInformation(IntPtr tokenHandle, int tokenInformationClass, out int tokenInformation, int tokenInformationLength, out int returnLength);
+
         /// <summary>
         /// Contains the security identifier (SID) associated with a local group member.
         /// </summary>

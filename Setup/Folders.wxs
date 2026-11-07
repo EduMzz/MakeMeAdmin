@@ -19,14 +19,6 @@
 
 		<StandardDirectory Id="ProgramMenuFolder" />
 
-		<StandardDirectory Id="CommonAppDataFolder">
-			<Directory Id="MMADataFolder" Name="Make Me Admin">
-				<Component Id="RemoveMMADataFolder" Guid="CDFEE69D-6D52-45E6-801E-B2ED74C86F5C">
-					<RemoveFile Id="RemoveAllFiles" Name="*.xml" Directory="MMADataFolder" On="uninstall" />
-					<RemoveFolder Id="RemoveMMADataFolder" Directory="MMADataFolder" On="uninstall" />
-				</Component>
-			</Directory>
-		</StandardDirectory>
 
 	</Fragment>
 </Wix>

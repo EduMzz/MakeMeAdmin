@@ -5,7 +5,7 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
     <ProjectGuid>{416656DC-D499-498B-8ACF-6502A13EFC9E}</ProjectGuid>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>SinclairCC.MakeMeAdmin</RootNamespace>
     <AssemblyName>MakeMeAdminService</AssemblyName>
@@ -45,6 +45,7 @@
     <Reference Include="System.Management" />
     <Reference Include="System.ServiceModel" />
     <Reference Include="System.ServiceProcess" />
+    <Reference Include="System.Windows.Forms" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\CommonAssemblyInfo.cs">
@@ -63,6 +64,9 @@
     </Compile>
     <Compile Include="MakeMeAdminService.cs">
       <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="AdminManagementForm.cs">
+      <SubType>Form</SubType>
     </Compile>
     <Compile Include="MakeMeAdminService.Designer.cs">
       <DependentUpon>MakeMeAdminService.cs</DependentUpon>

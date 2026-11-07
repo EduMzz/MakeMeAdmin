@@ -93,6 +93,19 @@ namespace SinclairCC.MakeMeAdmin
         }
 
         /// <summary>
+        /// Constructor for an administrator-approved remote request whose user token
+        /// is present on the requesting computer rather than the destination computer.
+        /// </summary>
+        public User(SecurityIdentifier userSid, string name, DateTime? expirationDateTime, string remoteHostAddress)
+        {
+            this.userSecurityIdentifier = userSid ?? throw new ArgumentNullException("userSid");
+            this.userName = name ?? throw new ArgumentNullException("name");
+            this.expirationDateTime = expirationDateTime;
+            this.remoteHostAddress = remoteHostAddress;
+            this.renewalsUsed = 0;
+        }
+
+        /// <summary>
         /// Gets the security identifier (SID) of the user.
         /// </summary>
         /// <remarks>

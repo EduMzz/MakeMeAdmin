@@ -72,6 +72,9 @@
     <Compile Include="SubmitRequestForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="RemoteRequestForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="SubmitRequestForm.Designer.cs">
       <DependentUpon>SubmitRequestForm.cs</DependentUpon>
     </Compile>

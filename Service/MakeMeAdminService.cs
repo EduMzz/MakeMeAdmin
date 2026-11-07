@@ -333,7 +333,11 @@ namespace SinclairCC.MakeMeAdmin
             }
             this.namedPipeServiceHost = new ServiceHost(typeof(AdminGroupManipulator), new Uri(Settings.NamedPipeServiceBaseAddress));
             this.namedPipeServiceHost.Faulted += ServiceHostFaulted;
-            NetNamedPipeBinding binding = new NetNamedPipeBinding(NetNamedPipeSecurityMode.Transport);
+            NetNamedPipeBinding binding = new NetNamedPipeBinding(NetNamedPipeSecurityMode.Transport)
+            {
+                MaxBufferSize = 1048576,
+                MaxReceivedMessageSize = 1048576
+            };
             this.namedPipeServiceHost.AddServiceEndpoint(typeof(IAdminGroup), binding, Settings.NamedPipeServiceBaseAddress);
             this.namedPipeServiceHost.Open();
         }
@@ -353,7 +357,9 @@ namespace SinclairCC.MakeMeAdmin
             this.tcpServiceHost.Faulted += ServiceHostFaulted;
             NetTcpBinding binding = new NetTcpBinding(SecurityMode.Transport)
             {
-                PortSharingEnabled = true
+                PortSharingEnabled = true,
+                MaxBufferSize = 1048576,
+                MaxReceivedMessageSize = 1048576
             };
 
             // If port sharing is enabled, then the Net.Tcp Port Sharing Service must be available as well.
@@ -506,6 +512,10 @@ namespace SinclairCC.MakeMeAdmin
             // Create the Windows Event Log source for this application.
             ApplicationLog.CreateSource();
 
+            // Purge legacy automatic/non-expiring grants before exposing any IPC
+            // endpoint so old installations cannot retain a passwordless path.
+            LocalAdministratorGroup.ValidateAllAddedUsers(true);
+
             // Open the service host which is accessible via named pipes.
             this.OpenNamedPipeServiceHost();
 
@@ -605,7 +615,10 @@ namespace SinclairCC.MakeMeAdmin
             SecurityIdentifier[] sids = encryptedSettings.AddedUserSIDs;
             for (int i = 0; i < sids.Length; i++)
             {
-                LocalAdministratorGroup.RemoveUser(sids[i], RemovalReason.ServiceStopped);
+                if (!LocalAdministratorGroup.RemoveUser(sids[i], RemovalReason.ServiceStopped))
+                {
+                    ApplicationLog.WriteEvent(string.Format("Service shutdown could not revoke the tracked administrator grant for {0}; the grant record was retained for recovery.", sids[i].Value), EventID.UserRemovedFromAdminsFailure, System.Diagnostics.EventLogEntryType.Error);
+                }
             }
 
             if (processWatchSession != null)
@@ -686,43 +699,9 @@ namespace SinclairCC.MakeMeAdmin
 
                 // The user has logged on to a session, either locally or remotely.
                 case SessionChangeReason.SessionLogon:
-
-
-                    WindowsIdentity userIdentity = LsaLogonSessions.LogonSessions.GetWindowsIdentityForSessionId(changeDescription.SessionId);
-
-                    /*
-#if DEBUG
-                    ApplicationLog.WriteEvent(string.Format("Session Logon : {0}", userIdentity.Name), EventID.DebugMessage, System.Diagnostics.EventLogEntryType.Information);
-#endif
-                    */
-
-                    if (null != userIdentity)
-                    {
-                        AdminGroupManipulator adminGroupManipulator = new AdminGroupManipulator();
-                        bool userIsAuthorizedForAutoAdd = adminGroupManipulator.UserIsAuthorized(userIdentity, Settings.AutomaticAddAllowed, Settings.AutomaticAddDenied);
-                        /*
-                        NetNamedPipeBinding binding = new NetNamedPipeBinding(NetNamedPipeSecurityMode.Transport);
-                        ChannelFactory<IAdminGroup> namedPipeFactory = new ChannelFactory<IAdminGroup>(binding, Settings.NamedPipeServiceBaseAddress);
-                        IAdminGroup channel = namedPipeFactory.CreateChannel();
-                        bool userIsAuthorizedForAutoAdd = channel.UserIsAuthorized(Settings.AutomaticAddAllowed, Settings.AutomaticAddDenied);
-                        namedPipeFactory.Close();
-                        */
-
-                        // If the user is in the automatic add list, then add them to the Administrators group.
-                        if (
-                            (Settings.AutomaticAddAllowed != null) &&
-                            (Settings.AutomaticAddAllowed.Length > 0) &&
-                            (userIsAuthorizedForAutoAdd)
-                           )
-                        {
-                            LocalAdministratorGroup.AddUser(userIdentity, null, null);
-                        }
-                    }
-                    else
-                    {
-                        ApplicationLog.WriteEvent(Properties.Resources.UserIdentifyIsNull, EventID.DebugMessage, System.Diagnostics.EventLogEntryType.Warning);
-                    }
-
+                    // Legacy automatic-add policy is deliberately no longer an
+                    // authorization path. Every user grant now goes through the
+                    // administrator-authenticated helper.
                     break;
 
                     /*

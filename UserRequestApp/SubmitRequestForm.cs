@@ -151,61 +151,13 @@ namespace SinclairCC.MakeMeAdmin
         /// </param>
         private void ClickSubmitButton(object sender, EventArgs e)
         {
-            if (AuthenticationSuccessful && ReasonDialogSatisfied)
+            if (ReasonDialogSatisfied)
             {
                 this.DisableButtons();
                 this.appStatus.Text = string.Format(Properties.Resources.UIMessageAddingToGroup, LocalAdministratorGroup.LocalAdminGroupName);
                 addUserBackgroundWorker.RunWorkerAsync();
             }
         }
-
-        private bool AuthenticationSuccessful
-        {
-            get
-            {
-                bool authenticationSuccessful = true;
-                if (Settings.RequireAuthenticationForPrivileges)
-                {
-                    authenticationSuccessful = false;
-
-                    System.Net.NetworkCredential credentials = null;
-                    int authenticationReturnCode = 0;
-                    WindowsIdentity currentIdentity = WindowsIdentity.GetCurrent();
-                    try
-                    {
-                        do
-                        {
-                            do
-                            {
-                                credentials = NativeMethods.GetCredentials(this.Handle, currentIdentity.Name, authenticationReturnCode);
-                            } while ((null != credentials) && (string.Compare(credentials.UserName, currentIdentity.Name, true) != 0));
-
-                            if (null != credentials)
-                            {
-                                authenticationReturnCode = NativeMethods.ValidateCredentials(credentials);
-                            }
-                        } while ((null != credentials) && (authenticationReturnCode != 0));
-                    }
-                    catch (ArgumentException excep)
-                    {
-                        MessageBox.Show(this, string.Format("{0}: {1}", excep.GetType().Name, excep.Message), Properties.Resources.ApplicationName, MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1, 0);
-                    }
-                    catch (System.ComponentModel.Win32Exception excep)
-                    {
-                        MessageBox.Show(this, string.Format("{0}: {1}", excep.GetType().Name, excep.Message), Properties.Resources.ApplicationName, MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1, 0);
-                    }
-                    catch (Exception excep)
-                    {
-                        MessageBox.Show(this, string.Format("{0}: {1}", excep.GetType().Name, excep.Message), Properties.Resources.ApplicationName, MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1, 0);
-                    }
-
-                    authenticationSuccessful = (null != credentials);
-                    authenticationSuccessful &= (authenticationReturnCode == 0);
-                }
-                return authenticationSuccessful;
-            }
-        }
-
 
         private bool ReasonDialogSatisfied
         {
@@ -312,25 +264,33 @@ namespace SinclairCC.MakeMeAdmin
         /// </param>
         private void addUserBackgroundWorker_DoWork(object sender, System.ComponentModel.DoWorkEventArgs e)
         {
-            NetNamedPipeBinding binding = new NetNamedPipeBinding(NetNamedPipeSecurityMode.Transport);
-            ChannelFactory<IAdminGroup> namedPipeFactory = new ChannelFactory<IAdminGroup>(binding, Settings.NamedPipeServiceBaseAddress);
-            IAdminGroup channel = namedPipeFactory.CreateChannel();
-
-            try
+            string serviceExecutable = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "MakeMeAdminService.exe");
+            if (!System.IO.File.Exists(serviceExecutable))
             {
-                channel.AddUserToAdministratorsGroup();
-            }
-            catch (System.ServiceModel.EndpointNotFoundException)
-            {
-                throw;
-            }
-            catch (Exception)
-            {
-                throw;
-                // TODO: What do we do with this error?
+                throw new System.IO.FileNotFoundException("The protected Make Me Admin service executable was not found.", serviceExecutable);
             }
 
-            namedPipeFactory.Close();
+            System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo(serviceExecutable,
+                "--grant-session " + System.Diagnostics.Process.GetCurrentProcess().SessionId.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                WorkingDirectory = AppDomain.CurrentDomain.BaseDirectory
+            };
+
+            using (System.Diagnostics.Process approvalProcess = System.Diagnostics.Process.Start(startInfo))
+            {
+                if (approvalProcess == null)
+                {
+                    throw new InvalidOperationException("Windows did not start the administrator approval helper.");
+                }
+
+                approvalProcess.WaitForExit();
+                if (approvalProcess.ExitCode != 0)
+                {
+                    throw new InvalidOperationException("The administrator approval was denied or the privileged operation failed.");
+                }
+            }
         }
 
 

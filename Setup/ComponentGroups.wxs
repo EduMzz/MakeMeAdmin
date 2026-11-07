@@ -13,9 +13,6 @@
 		<ComponentRef Id="da_Translation" />
 		<ComponentRef Id="de_Translation" />
 		<ComponentRef Id="fr_Translation" />
-		<ComponentRef Id="RemoteElevationUIShortcut" />
-		<ComponentRef Id="RemoteElevationUserInterface" />
-		<ComponentRef Id="RemoveMMADataFolder" />
 		<ComponentRef Id="Service" />
 
 		<ComponentGroupRef Id="RegistryEntries" />

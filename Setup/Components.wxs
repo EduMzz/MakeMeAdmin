@@ -3,9 +3,9 @@
 		<Component Id="ApplicationFiles" Guid="9D432F10-34F3-4C55-9C15-FD11961AAE84">
 			<File Id="ElevationUserInterfaceExe" Name="$(var.LocalUI.TargetFileName)" Source="$(var.LocalUI.TargetPath)" KeyPath="yes" />
 			<Shortcut Id="LocalUserInferfaceShortcut" Directory="ProgramMenuFolder" Name="Make Me Admin" Description="Make Me Admin Local User Interface" Advertise="true" WorkingDirectory="INSTALLFOLDER" Icon="SecurityLock.ico" IconIndex="0" />
+			<Shortcut Id="RemoteUserRequestShortcut" Directory="ProgramMenuFolder" Name="Make Me Admin Remote Request" Description="Request administrator rights on another computer" Advertise="true" Arguments="--remote" WorkingDirectory="INSTALLFOLDER" Icon="SecurityLock.ico" IconIndex="0" />
 
 			<File Id="EnumerationsDll" Name="$(var.Enumerations.TargetFileName)" Source="$(var.Enumerations.TargetPath)" KeyPath="no" />
-			<File Id="MruLibrary" Name="MruList.dll" Source="$(var.RemoteUI.TargetDir)\MruList.dll" KeyPath="no" />
 			<File Id="SettingsDll" Name="$(var.Settings.TargetFileName)" Source="$(var.Settings.TargetPath)" KeyPath="no" />
 			<File Id="UserListDll" Name="$(var.UserList.TargetFileName)" Source="$(var.UserList.TargetPath)" KeyPath="no" />
 			<File Id="UserListDllConfig" Name="$(var.UserList.TargetFileName).config" Source="$(var.UserList.TargetPath).config" KeyPath="no" />
@@ -35,16 +35,10 @@
 			<?endif?>
 		</Component>
 
-		<Component Id="RemoteElevationUserInterface" Guid="*">
-			<File Id="RemoteElevationUserInterfaceExe" Name="$(var.RemoteUI.TargetFileName)" Source="$(var.RemoteUI.TargetPath)" KeyPath="yes" />
-		</Component>
-		<Component Id="RemoteElevationUIShortcut" Guid="A8D789B0-115A-468E-85E7-64EA31FE948E" Condition="INSTALLREMOTESHORTCUT = 1" >
-			<Shortcut Id="RemoteUserInterfaceShortcut" Directory="ProgramMenuFolder" Name="Make Me Admin Remote" Target="[#RemoteElevationUserInterfaceExe]" Description="Make Me Admin Remote User Interface" Advertise="false" WorkingDirectory="INSTALLFOLDER" Icon="SecurityLock.ico" IconIndex="0" />
-			<RegistryValue Root="HKCU" Key="Software\Sinclair Community College\Make Me Admin" Name="RemoteUIShortcutInstalled" Type="integer" Value="1" KeyPath="yes" />
-		</Component>
 
 		<Component Id="Service" Guid="DE98A440-7542-4394-9CAB-086B2906D29A">
 			<File Id="ServiceExe" Name="$(var.Service.TargetFileName)" Source="$(var.Service.TargetPath)" KeyPath="yes" />
+			<Shortcut Id="AdminManagementUserInterfaceShortcut" Directory="ProgramMenuFolder" Name="Make Me Admin Administration" Advertise="true" Arguments="admin gui" WorkingDirectory="INSTALLFOLDER" Icon="SecurityLock.ico" IconIndex="0" />
 			<File Id="ServiceExeConfig" Name="$(var.Service.TargetFileName).config" Source="$(var.Service.TargetPath).config" KeyPath="no" />
 
 			<ServiceInstall DisplayName="[ProductName]" Name="MakeMeAdmin" Start="auto" Type="shareProcess" Vital="yes" Description="!(loc.ServiceDescription)" EraseDescription="no" ErrorControl="normal">
@@ -55,12 +49,11 @@
 				<ServiceDependency Group="no" Id="LanmanServer" />
 			</ServiceInstall>
 			<ServiceControl Id="MakeMeAdmin" Name="MakeMeAdmin" Remove="uninstall" Start="install" Stop="both" Wait="yes" />
-			<RemoveRegistryKey Action="removeOnUninstall" Id="AddedSIDsValue" Key="Software\Sinclair Community College\Make Me Admin" Root="HKLM" />
 			<RemoveFolder Id="INSTALLFOLDER" On="uninstall" />
 		</Component>
 
+
 		<Component Id="da_Translation" Guid="B4496726-831F-4EC4-A2A5-6E5C2A85FF97" Directory="da_Localization">
-			<File Id="RemoteElevationResources_da" Name="$(var.RemoteUI.TargetName).resources.dll" Source="$(var.RemoteUI.TargetDir)da\$(var.RemoteUI.TargetName).resources.dll" KeyPath="no" />
 			<File Id="LoggingResources_da" Name="$(var.Logging.TargetName).resources.dll" Source="$(var.Logging.TargetDir)da\$(var.Logging.TargetName).resources.dll" KeyPath="no" />
 			<File Id="ServiceResources_da" Name="$(var.Service.TargetName).resources.dll" Source="$(var.Service.TargetDir)da\$(var.Service.TargetName).resources.dll" KeyPath="no" />
 			<File Id="ProcessCommunicationLibraryResources_da" Name="$(var.ProcessCommunication.TargetName).resources.dll" Source="$(var.ProcessCommunication.TargetDir)da\$(var.ProcessCommunication.TargetName).resources.dll" KeyPath="no" />
@@ -68,7 +61,6 @@
 		</Component>
 
 		<Component Id="de_Translation" Guid="669DB74E-C708-4068-A464-D8C74380C4F9" Directory="de_Localization">
-			<File Id="RemoteElevationResources_de" Name="$(var.RemoteUI.TargetName).resources.dll" Source="$(var.RemoteUI.TargetDir)de\$(var.RemoteUI.TargetName).resources.dll" KeyPath="no" />
 			<File Id="LoggingResources_de" Name="$(var.Logging.TargetName).resources.dll" Source="$(var.Logging.TargetDir)de\$(var.Logging.TargetName).resources.dll" KeyPath="no" />
 			<File Id="ServiceResources_de" Name="$(var.Service.TargetName).resources.dll" Source="$(var.Service.TargetDir)de\$(var.Service.TargetName).resources.dll" KeyPath="no" />
 			<File Id="ProcessCommunicationLibraryResources_de" Name="$(var.ProcessCommunication.TargetName).resources.dll" Source="$(var.ProcessCommunication.TargetDir)de\$(var.ProcessCommunication.TargetName).resources.dll" KeyPath="no" />
@@ -76,7 +68,6 @@
 		</Component>
 
 		<Component Id="fr_Translation" Guid="1152E967-8A78-4684-A401-0CBDFC47D34F" Directory="fr_Localization">
-			<File Id="RemoteElevationResources_fr" Name="$(var.RemoteUI.TargetName).resources.dll" Source="$(var.RemoteUI.TargetDir)fr\$(var.RemoteUI.TargetName).resources.dll" KeyPath="no" />
 			<File Id="LoggingResources_fr" Name="$(var.Logging.TargetName).resources.dll" Source="$(var.Logging.TargetDir)fr\$(var.Logging.TargetName).resources.dll" KeyPath="no" />
 			<File Id="ServiceResources_fr" Name="$(var.Service.TargetName).resources.dll" Source="$(var.Service.TargetDir)fr\$(var.Service.TargetName).resources.dll" KeyPath="no" />
 			<File Id="ProcessCommunicationLibraryResources_fr" Name="$(var.ProcessCommunication.TargetName).resources.dll" Source="$(var.ProcessCommunication.TargetDir)fr\$(var.ProcessCommunication.TargetName).resources.dll" KeyPath="no" />

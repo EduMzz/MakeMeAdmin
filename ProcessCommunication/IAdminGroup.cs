@@ -36,6 +36,51 @@ namespace SinclairCC.MakeMeAdmin
         void AddUserToAdministratorsGroup();
 
         /// <summary>
+        /// Adds the interactive user in the given session after an administrator has
+        /// authenticated through the Windows elevation prompt.
+        /// </summary>
+        [OperationContract]
+        void AddSessionUserToAdministratorsGroup(int sessionID);
+
+        /// <summary>
+        /// Returns the interactive user's identity only to an administrator token
+        /// running in that same session. Used to carry a confirmed remote request.
+        /// </summary>
+        [OperationContract]
+        RemoteRequestIdentity GetRequestIdentityForSession(int sessionID);
+
+        /// <summary>
+        /// Adds the user from a UAC-approved remote request. The destination service
+        /// authenticates the administrator token and enforces its remote allow/deny policy.
+        /// </summary>
+        [OperationContract]
+        void AddRemoteSessionUserToAdministratorsGroup(RemoteRequestIdentity target, int timeoutMinutes);
+
+        /// <summary>
+        /// Removes an arbitrary user from the Administrators group. Administrators only.
+        /// </summary>
+        [OperationContract]
+        void AdminRemoveUserFromAdministratorsGroup(string sid, RemovalReason reason);
+
+        /// <summary>
+        /// Grants a temporary administrator membership to a logged-on session. Administrators only.
+        /// </summary>
+        [OperationContract]
+        void AdminGrantSessionUser(int sessionID, int timeoutMinutes);
+
+        /// <summary>
+        /// Verifies authorization for a local administrator management operation.
+        /// </summary>
+        [OperationContract]
+        void AuthorizeAdminManagement(string operation);
+
+        /// <summary>
+        /// Returns logged-on interactive sessions for administrator management.
+        /// </summary>
+        [OperationContract]
+        string[] GetLoggedOnSessions();
+
+        /// <summary>
         /// Removes a user from the Administrators group.
         /// </summary>
         /// <param name="reason">

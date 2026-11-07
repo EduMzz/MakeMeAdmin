@@ -1,6 +1,8 @@
 namespace SinclairCC.MakeMeAdmin
 {
     using System;
+    using System.IO;
+    using System.Security.AccessControl;
     using System.Security.Cryptography;
     using System.Security.Principal;
     using System.Xml;
@@ -49,6 +51,7 @@ namespace SinclairCC.MakeMeAdmin
         /// </param>
         public EncryptedSettings(string filePath)
         {
+            EnsureStorageSecurity(filePath);
             if (this.AddedUsers == null)
             {
                 this.AddedUsers = new UserList();
@@ -86,6 +89,35 @@ namespace SinclairCC.MakeMeAdmin
                 string filePath = System.IO.Path.Combine(System.Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Make Me Admin");
                 filePath = System.IO.Path.Combine(filePath, EncryptedSettingsFile);
                 return filePath;
+            }
+        }
+
+        /// <summary>
+        /// Restricts the grant database to LocalSystem and the local Administrators
+        /// group. DPAPI LocalMachine encryption alone does not prevent another local
+        /// user from reading or replacing the encrypted file.
+        /// </summary>
+        private static void EnsureStorageSecurity(string filePath)
+        {
+            string directoryPath = Path.GetDirectoryName(filePath);
+            Directory.CreateDirectory(directoryPath);
+
+            SecurityIdentifier administrators = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            SecurityIdentifier localSystem = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+
+            DirectorySecurity directorySecurity = new DirectorySecurity();
+            directorySecurity.SetAccessRuleProtection(true, false);
+            directorySecurity.AddAccessRule(new FileSystemAccessRule(administrators, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            directorySecurity.AddAccessRule(new FileSystemAccessRule(localSystem, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            new DirectoryInfo(directoryPath).SetAccessControl(directorySecurity);
+
+            if (File.Exists(filePath))
+            {
+                FileSecurity fileSecurity = new FileSecurity();
+                fileSecurity.SetAccessRuleProtection(true, false);
+                fileSecurity.AddAccessRule(new FileSystemAccessRule(administrators, FileSystemRights.FullControl, AccessControlType.Allow));
+                fileSecurity.AddAccessRule(new FileSystemAccessRule(localSystem, FileSystemRights.FullControl, AccessControlType.Allow));
+                File.SetAccessControl(filePath, fileSecurity);
             }
         }
 
@@ -173,6 +205,30 @@ namespace SinclairCC.MakeMeAdmin
             else
             { // The user is not already in the list.
                 this.AddedUsers.Add(new User(userIdentity, expirationTime, remoteAddress));
+            }
+            this.Save();
+        }
+
+        /// <summary>
+        /// Adds an administrator-approved remote requester to the grant database.
+        /// </summary>
+        public void AddUser(SecurityIdentifier userSid, string name, DateTime? expirationTime, string remoteAddress)
+        {
+            if (this.AddedUsers.Contains(userSid))
+            {
+                User existingUser = this.AddedUsers[userSid];
+                if (existingUser.ExpirationTime.HasValue && expirationTime.HasValue)
+                {
+                    existingUser.ExpirationTime = DateTime.FromFileTime(Math.Min(expirationTime.Value.ToFileTime(), existingUser.ExpirationTime.Value.ToFileTime()));
+                }
+                else if (expirationTime.HasValue)
+                {
+                    existingUser.ExpirationTime = expirationTime;
+                }
+            }
+            else
+            {
+                this.AddedUsers.Add(new User(userSid, name, expirationTime, remoteAddress));
             }
             this.Save();
         }
@@ -306,6 +362,8 @@ namespace SinclairCC.MakeMeAdmin
         {
             try
             {
+                EnsureStorageSecurity(filePath);
+
                 // Serialize the current object to a memory stream.
                 System.IO.MemoryStream plaintextStream = new System.IO.MemoryStream();
                 System.Xml.XmlTextWriter plaintextWriter = new System.Xml.XmlTextWriter(plaintextStream, System.Text.Encoding.Unicode);
